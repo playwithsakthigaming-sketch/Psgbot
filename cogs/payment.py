@@ -25,7 +25,7 @@ FONT_PATH = "fonts/CinzelDecorative-Bold.ttf"
 # ================= FONT =================
 def get_font(size: int):
     if not os.path.exists(FONT_PATH):
-        raise FileNotFoundError(f"Font not found: {FONT_PATH}")
+        return ImageFont.load_default()
     return ImageFont.truetype(FONT_PATH, size)
 
 # ================= INVOICE CONFIG =================
@@ -45,8 +45,7 @@ def load_invoice_background():
     try:
         bg = Image.open(INVOICE_BG_PATH).convert("RGB")
         return bg.resize((W, H))
-    except Exception as e:
-        print("❌ BG load error:", e)
+    except:
         return Image.new("RGB", (W, H), (30,30,30))
 
 # ================= INVOICE GENERATOR =================
@@ -55,10 +54,10 @@ def generate_invoice(username, rupees, coins):
     draw = ImageDraw.Draw(img)
 
     if SHOW_GRID:
-        for x in range(0,1000,50):
-            draw.line((x,0,x,800),(60,60,60))
-        for y in range(0,800,50):
-            draw.line((0,y,1000,y),(60,60,60))
+        for x in range(0,1080,50):
+            draw.line((x,0,x,1080),(60,60,60))
+        for y in range(0,1080,50):
+            draw.line((0,y,1080,y),(60,60,60))
 
     invoice_id = f"PSG-{random.randint(10000,99999)}"
     date = time.strftime("%d/%m/%Y")
@@ -88,9 +87,9 @@ def generate_invoice(username, rupees, coins):
     draw.text((cfg["coin_credit"]["x"], cfg["coin_credit"]["y"]),
               f"Coins Credited: {coins}",
               font=get_font(cfg["coin_credit"]["fontSize"]),
-              fill="blue")
+              fill="cyan")
 
-    draw.text((500,740),
+    draw.text((450,820),
               "Payment Status: PAID",
               font=get_font(30),
               fill=(0,255,0))
@@ -105,17 +104,25 @@ class PaymentPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="💰 Buy Coins", style=discord.ButtonStyle.success, custom_id="payment_buy")
-    async def buy(self, interaction: discord.Interaction, _):
+    @discord.ui.button(
+        label="💰 Buy Coins",
+        style=discord.ButtonStyle.success,
+        custom_id="payment_buy"
+    )
+    async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
+
         guild = interaction.guild
+
+        # ✅ Create category if not exists
         category = discord.utils.get(guild.categories, name=PAYMENT_CATEGORY)
         if not category:
             category = await guild.create_category(PAYMENT_CATEGORY)
 
+        # ✅ Channel permissions
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True)
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True),
         }
 
         channel = await guild.create_text_channel(
@@ -128,17 +135,19 @@ class PaymentPanelView(discord.ui.View):
             title="💳 Payment Ticket",
             description=(
                 f"{interaction.user.mention}\n\n"
-                f"UPI ID: `{UPI_ID}`\n"
-                f"₹{RUPEE_RATE} = {COINS_PER_RATE} PSG Coins\n\n"
-                "📸 Upload payment screenshot.\n"
-                "Admin will confirm."
+                f"**UPI ID:** `{UPI_ID}`\n"
+                f"**Rate:** ₹{RUPEE_RATE} = {COINS_PER_RATE} PSG Coins\n\n"
+                "📸 Upload your payment screenshot here.\n"
+                "Admin will confirm your payment."
             ),
             color=discord.Color.gold()
         )
 
         await channel.send(embed=embed, view=PaymentCloseView())
+
         await interaction.response.send_message(
-            f"✅ Payment ticket created: {channel.mention}", ephemeral=True
+            f"✅ Payment ticket created: {channel.mention}",
+            ephemeral=True
         )
 
 # ================= CLOSE VIEW =================
@@ -146,10 +155,17 @@ class PaymentCloseView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.danger, custom_id="payment_close")
-    async def close_ticket(self, interaction: discord.Interaction, _):
+    @discord.ui.button(
+        label="🔒 Close Ticket",
+        style=discord.ButtonStyle.danger,
+        custom_id="payment_close"
+    )
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("Admins only.", ephemeral=True)
+            return await interaction.response.send_message(
+                "❌ Admins only.", ephemeral=True
+            )
+
         await interaction.channel.delete()
 
 # ================= PAYMENT COG =================
@@ -157,19 +173,21 @@ class Payment(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # -------- PANEL --------
     @app_commands.command(name="payment_panel")
     @app_commands.checks.has_permissions(administrator=True)
     async def payment_panel(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="💳 Buy PSG Coins",
-            description=f"₹{RUPEE_RATE} = {COINS_PER_RATE} PSG Coins\nClick below to buy.",
+            description=f"₹{RUPEE_RATE} = {COINS_PER_RATE} PSG Coins\n\nClick below to buy.",
             color=discord.Color.gold()
         )
         embed.set_thumbnail(url=LOGO_URL)
 
         await interaction.channel.send(embed=embed, view=PaymentPanelView())
-        await interaction.response.send_message("✅ Panel created.", ephemeral=True)
+        await interaction.response.send_message("✅ Payment panel created.", ephemeral=True)
 
+    # -------- CONFIRM PAYMENT --------
     @app_commands.command(name="confirm_payment")
     @app_commands.checks.has_permissions(administrator=True)
     async def confirm_payment(self, interaction: discord.Interaction, member: discord.Member, rupees: int):
@@ -181,8 +199,14 @@ class Payment(commands.Cog):
         coins = (rupees // RUPEE_RATE) * COINS_PER_RATE
 
         async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("INSERT OR IGNORE INTO coins (user_id,balance) VALUES (?,0)", (member.id,))
-            await db.execute("UPDATE coins SET balance = balance + ? WHERE user_id=?", (coins, member.id))
+            await db.execute(
+                "INSERT OR IGNORE INTO coins (user_id,balance) VALUES (?,0)",
+                (member.id,)
+            )
+            await db.execute(
+                "UPDATE coins SET balance = balance + ? WHERE user_id=?",
+                (coins, member.id)
+            )
             await db.commit()
 
         invoice = generate_invoice(member.name, rupees, coins)
@@ -194,15 +218,20 @@ class Payment(commands.Cog):
         except:
             pass
 
-        await interaction.followup.send(f"✅ Added {coins} coins to {member.mention}")
+        await interaction.followup.send(
+            f"✅ Added **{coins} coins** to {member.mention}"
+        )
 
+    # -------- PREVIEW --------
     @app_commands.command(name="invoice_preview")
     async def invoice_preview(self, interaction: discord.Interaction):
         img = generate_invoice(interaction.user.name, 100, 300)
         await interaction.response.send_message(
-            file=discord.File(img, "preview.png"), ephemeral=True
+            file=discord.File(img, "preview.png"),
+            ephemeral=True
         )
 
+    # -------- EDIT --------
     @app_commands.command(name="invoice_edit")
     async def invoice_edit(self, interaction: discord.Interaction, field: str, x: int, y: int, size: int):
         if field not in INVOICE_TEXT_CONFIG:
@@ -213,14 +242,17 @@ class Payment(commands.Cog):
         INVOICE_TEXT_CONFIG[field]["fontSize"] = size
 
         await interaction.response.send_message(
-            f"✅ {field} updated to x={x}, y={y}, size={size}", ephemeral=True
+            f"✅ {field} updated to x={x}, y={y}, size={size}",
+            ephemeral=True
         )
 
+    # -------- GRID --------
     @app_commands.command(name="invoice_grid")
     async def invoice_grid(self, interaction: discord.Interaction, show: bool):
         global SHOW_GRID
         SHOW_GRID = show
         await interaction.response.send_message(f"Grid = {show}", ephemeral=True)
+
 
 # ================= SETUP =================
 async def setup(bot: commands.Bot):
