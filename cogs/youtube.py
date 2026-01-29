@@ -8,7 +8,7 @@ import re
 
 DB_NAME = "bot.db"
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-CHECK_INTERVAL = 120  # seconds
+CHECK_INTERVAL = 30  # seconds (fast live detection)
 
 
 # =========================
@@ -18,6 +18,7 @@ async def resolve_channel_id(input_text: str):
     if input_text.startswith("UC"):
         return input_text
 
+    # Extract @handle
     match = re.search(r"@([\w\-]+)", input_text)
     if not match:
         return None
@@ -58,7 +59,7 @@ class YouTube(commands.Cog):
     # -------------------------
     # SETUP CHANNEL
     # -------------------------
-    @app_commands.command(name="setup_channel", description="Add YouTube alerts (URL or ID)")
+    @app_commands.command(name="setup_channel", description="Add YouTube alerts (URL / ID / @handle)")
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_channel(
         self,
@@ -96,7 +97,7 @@ class YouTube(commands.Cog):
             await interaction.followup.send(f"❌ Error: `{e}`")
 
     # -------------------------
-    # ALIAS: /setchannel
+    # ALIAS
     # -------------------------
     @app_commands.command(name="setchannel", description="Alias for setup_channel")
     @app_commands.checks.has_permissions(administrator=True)
@@ -163,17 +164,43 @@ class YouTube(commands.Cog):
         await interaction.response.send_message("✅ YouTube system running", ephemeral=True)
 
     # -------------------------
-    # FETCH VIDEO (Video / Shorts / Live)
+    # FETCH VIDEO (LIVE first)
     # -------------------------
     async def fetch_latest_video(self, channel_id):
-        url = (
-            "https://www.googleapis.com/youtube/v3/search"
-            f"?part=snippet&channelId={channel_id}"
+        base = "https://www.googleapis.com/youtube/v3/search"
+
+        # 🔴 LIVE first
+        live_url = (
+            f"{base}?part=snippet&channelId={channel_id}"
+            f"&eventType=live&type=video&order=date&key={YOUTUBE_API_KEY}"
+        )
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(live_url) as resp:
+                live_data = await resp.json()
+
+        if live_data.get("items"):
+            item = live_data["items"][0]
+            video_id = item["id"]["videoId"]
+            title = item["snippet"]["title"]
+            thumb = item["snippet"]["thumbnails"]["high"]["url"]
+
+            return {
+                "video_id": video_id,
+                "title": title,
+                "url": f"https://youtu.be/{video_id}",
+                "thumbnail": thumb,
+                "type": "🔴 LIVE"
+            }
+
+        # 📺 Normal / Shorts
+        normal_url = (
+            f"{base}?part=snippet&channelId={channel_id}"
             f"&maxResults=1&order=date&type=video&key={YOUTUBE_API_KEY}"
         )
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(normal_url) as resp:
                 data = await resp.json()
 
         if not data.get("items"):
@@ -182,24 +209,16 @@ class YouTube(commands.Cog):
         item = data["items"][0]
         video_id = item["id"]["videoId"]
         title = item["snippet"]["title"]
-        thumbnail = item["snippet"]["thumbnails"]["high"]["url"]
+        thumb = item["snippet"]["thumbnails"]["high"]["url"]
 
-        is_live = item["snippet"]["liveBroadcastContent"] == "live"
         is_shorts = "#short" in title.lower()
-
-        if is_live:
-            vtype = "🔴 LIVE"
-        elif is_shorts:
-            vtype = "🎬 SHORTS"
-        else:
-            vtype = "📺 VIDEO"
 
         return {
             "video_id": video_id,
             "title": title,
             "url": f"https://youtu.be/{video_id}",
-            "thumbnail": thumbnail,
-            "type": vtype
+            "thumbnail": thumb,
+            "type": "🎬 SHORTS" if is_shorts else "📺 VIDEO"
         }
 
     # -------------------------
