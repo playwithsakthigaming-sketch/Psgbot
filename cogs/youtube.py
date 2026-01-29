@@ -1,41 +1,35 @@
 import discord
-import aiosqlite
-import os
-import aiohttp
 from discord.ext import commands, tasks
 from discord import app_commands
+import aiohttp
+import aiosqlite
+import os
 
 DB_NAME = "bot.db"
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-CHECK_INTERVAL = 2  # minutes
+CHECK_INTERVAL = 120  # seconds
 
-
-# ================= DATABASE =================
-async def setup_db():
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS youtube_alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
-            youtube_channel TEXT,
-            discord_channel INTEGER,
-            role_ping INTEGER,
-            message TEXT,
-            last_video TEXT
-        )
-        """)
-        await db.commit()
-
-
-# ================= COG =================
+# =========================
+# YOUTUBE COG
+# =========================
 class YouTube(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.check_videos.start()
 
-    # ---------------- ADD CHANNEL ----------------
-    @app_commands.command(name="setup_channel", description="Add YouTube alerts (Live + Video + Shorts)")
+    # =========================
+    # START LOOP AFTER READY
+    # =========================
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if not self.check_videos.is_running():
+            self.check_videos.start()
+            print("✅ YouTube alert loop started")
+
+    # =========================
+    # SETUP CHANNEL
+    # =========================
+    @app_commands.command(name="setup_channel", description="Add YouTube alert channel")
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_channel(
         self,
@@ -43,13 +37,13 @@ class YouTube(commands.Cog):
         youtube_channel: str,
         discord_channel: discord.TextChannel,
         role: discord.Role = None,
-        message: str = "📢 {title}\n{url}"
+        message: str = "📢 New video!\n{title}\n{url}"
     ):
         await interaction.response.defer(ephemeral=True)
 
         async with aiosqlite.connect(DB_NAME) as db:
             await db.execute("""
-            INSERT INTO youtube_alerts
+            INSERT OR REPLACE INTO youtube_alerts
             (guild_id, youtube_channel, discord_channel, role_ping, message, last_video)
             VALUES (?, ?, ?, ?, ?, ?)
             """, (
@@ -62,123 +56,60 @@ class YouTube(commands.Cog):
             ))
             await db.commit()
 
-        await interaction.followup.send("✅ YouTube channel added (Videos + Shorts + Live)!")
+        await interaction.followup.send("✅ YouTube channel added successfully!")
 
-    # ---------------- REMOVE CHANNEL ----------------
-    @app_commands.command(name="remove_channel", description="Remove YouTube alert")
+    # =========================
+    # REMOVE CHANNEL
+    # =========================
+    @app_commands.command(name="remove_channel", description="Remove YouTube alert channel")
     @app_commands.checks.has_permissions(administrator=True)
     async def remove_channel(self, interaction: discord.Interaction, youtube_channel: str):
         await interaction.response.defer(ephemeral=True)
 
         async with aiosqlite.connect(DB_NAME) as db:
             await db.execute(
-                "DELETE FROM youtube_alerts WHERE youtube_channel=? AND guild_id=?",
-                (youtube_channel, interaction.guild.id)
+                "DELETE FROM youtube_alerts WHERE guild_id=? AND youtube_channel=?",
+                (interaction.guild.id, youtube_channel)
             )
             await db.commit()
 
         await interaction.followup.send("✅ Channel removed")
 
-    # ---------------- LIST CHANNELS ----------------
+    # =========================
+    # LIST CHANNELS
+    # =========================
     @app_commands.command(name="list_channels", description="List YouTube alert channels")
     async def list_channels(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
         async with aiosqlite.connect(DB_NAME) as db:
-            cur = await db.execute(
+            cursor = await db.execute(
                 "SELECT youtube_channel FROM youtube_alerts WHERE guild_id=?",
                 (interaction.guild.id,)
             )
-            rows = await cur.fetchall()
+            rows = await cursor.fetchall()
 
         if not rows:
-            return await interaction.followup.send("❌ No channels set")
+            return await interaction.followup.send("❌ No YouTube channels added")
 
-        text = "\n".join([f"• {r[0]}" for r in rows])
-        await interaction.followup.send(f"📺 Tracked Channels:\n{text}")
+        text = "\n".join(f"• {r[0]}" for r in rows)
+        await interaction.followup.send(f"📺 **Tracked Channels:**\n{text}")
 
-    # ---------------- TEST ----------------
-    @app_commands.command(name="youtube_test", description="Test YouTube alert system")
+    # =========================
+    # TEST COMMAND
+    # =========================
+    @app_commands.command(name="youtube_test", description="Test YouTube system")
     async def youtube_test(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "✅ YouTube alert system is running!",
-            ephemeral=True
-        )
+        await interaction.response.send_message("✅ YouTube system running!", ephemeral=True)
 
-    # ---------------- LOOP ----------------
-    @tasks.loop(minutes=CHECK_INTERVAL)
-    async def check_videos(self):
-        async with aiosqlite.connect(DB_NAME) as db:
-            cur = await db.execute("SELECT * FROM youtube_alerts")
-            rows = await cur.fetchall()
-
-        for row in rows:
-            (
-                row_id,
-                guild_id,
-                yt_channel_id,
-                discord_channel_id,
-                role_ping,
-                custom_msg,
-                last_video
-            ) = row
-
-            video = await self.fetch_latest_video(yt_channel_id)
-            if not video:
-                continue
-
-            video_id = video["id"]
-            title = video["title"]
-            url = video["url"]
-            vtype = video["type"]
-
-            if last_video == video_id:
-                continue
-
-            guild = self.bot.get_guild(guild_id)
-            if not guild:
-                continue
-
-            channel = guild.get_channel(discord_channel_id)
-            if not channel:
-                continue
-
-            role_text = f"<@&{role_ping}>" if role_ping else ""
-
-            text = custom_msg.replace("{title}", title).replace("{url}", url)
-
-            if vtype == "live":
-                embed_title = "🔴 LIVE NOW!"
-                color = discord.Color.red()
-            elif vtype == "short":
-                embed_title = "🎬 New Short!"
-                color = discord.Color.orange()
-            else:
-                embed_title = "📺 New Video"
-                color = discord.Color.blue()
-
-            embed = discord.Embed(
-                title=embed_title,
-                description=text,
-                color=color
-            )
-
-            await channel.send(content=role_text, embed=embed)
-
-            async with aiosqlite.connect(DB_NAME) as db:
-                await db.execute(
-                    "UPDATE youtube_alerts SET last_video=? WHERE id=?",
-                    (video_id, row_id)
-                )
-                await db.commit()
-
-    # ---------------- FETCH VIDEO ----------------
+    # =========================
+    # FETCH LATEST VIDEO
+    # =========================
     async def fetch_latest_video(self, channel_id: str):
         url = (
             "https://www.googleapis.com/youtube/v3/search"
             f"?part=snippet&channelId={channel_id}"
-            "&order=date&maxResults=1"
-            f"&key={YOUTUBE_API_KEY}"
+            f"&maxResults=1&order=date&type=video&key={YOUTUBE_API_KEY}"
         )
 
         async with aiohttp.ClientSession() as session:
@@ -189,34 +120,80 @@ class YouTube(commands.Cog):
             return None
 
         item = data["items"][0]
-        vid = item["id"].get("videoId")
-        if not vid:
-            return None
+        video_id = item["id"]["videoId"]
+        title = item["snippet"]["title"]
+        thumbnail = item["snippet"]["thumbnails"]["high"]["url"]
 
-        broadcast = item["snippet"]["liveBroadcastContent"]
-
-        if broadcast == "live":
-            vtype = "live"
-        else:
-            title = item["snippet"]["title"].lower()
-            if "short" in title or "#short" in title:
-                vtype = "short"
-            else:
-                vtype = "video"
+        # Detect Shorts
+        is_shorts = "#shorts" in title.lower()
 
         return {
-            "id": vid,
-            "title": item["snippet"]["title"],
-            "url": f"https://youtu.be/{vid}",
-            "type": vtype
+            "video_id": video_id,
+            "title": title,
+            "url": f"https://youtu.be/{video_id}",
+            "thumbnail": thumbnail,
+            "shorts": is_shorts
         }
+
+    # =========================
+    # LOOP CHECK
+    # =========================
+    @tasks.loop(seconds=CHECK_INTERVAL)
+    async def check_videos(self):
+        if not YOUTUBE_API_KEY:
+            print("❌ YOUTUBE_API_KEY missing")
+            return
+
+        async with aiosqlite.connect(DB_NAME) as db:
+            cursor = await db.execute("SELECT * FROM youtube_alerts")
+            rows = await cursor.fetchall()
+
+        for row in rows:
+            guild_id, channel_id, discord_channel_id, role_ping, message, last_video = row
+
+            data = await self.fetch_latest_video(channel_id)
+            if not data:
+                continue
+
+            if data["video_id"] == last_video:
+                continue
+
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                continue
+
+            channel = guild.get_channel(discord_channel_id)
+            if not channel:
+                continue
+
+            role_text = f"<@&{role_ping}>\n" if role_ping else ""
+
+            embed = discord.Embed(
+                title="📺 New YouTube Video",
+                description=data["title"],
+                color=discord.Color.red()
+            )
+            embed.set_image(url=data["thumbnail"])
+            embed.add_field(name="Watch", value=data["url"])
+
+            text = message.replace("{title}", data["title"]).replace("{url}", data["url"])
+
+            await channel.send(content=role_text + text, embed=embed)
+
+            async with aiosqlite.connect(DB_NAME) as db:
+                await db.execute(
+                    "UPDATE youtube_alerts SET last_video=? WHERE guild_id=? AND youtube_channel=?",
+                    (data["video_id"], guild_id, channel_id)
+                )
+                await db.commit()
 
     @check_videos.before_loop
     async def before_loop(self):
         await self.bot.wait_until_ready()
-        await setup_db()
 
 
-# ================= SETUP =================
+# =========================
+# SETUP
+# =========================
 async def setup(bot: commands.Bot):
     await bot.add_cog(YouTube(bot))
