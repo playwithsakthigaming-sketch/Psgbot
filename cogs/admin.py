@@ -23,12 +23,12 @@ class Admin(commands.Cog):
     async def on_ready(self):
         if not self.status_loop.is_running():
             self.status_loop.start()
-            print("✅ Status rotation started (30s)")
+            print("✅ Status rotation started (10s)")
 
     # ========================
     # STATUS LOOP
     # ========================
-    @tasks.loop(seconds=30)
+    @tasks.loop(seconds=10)
     async def status_loop(self):
         activity = self.status_list[self.status_index]
         await self.bot.change_presence(activity=activity)
