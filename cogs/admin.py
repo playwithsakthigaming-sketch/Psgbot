@@ -3,17 +3,21 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import datetime
 import aiosqlite
+import os
+import sys
+import time
 
 DB_NAME = "bot.db"
+START_TIME = time.time()
 
 class Admin(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.status_index = 0
         self.status_list = [
-            discord.Game(name="PsgFamily"),
-            discord.Activity(type=discord.ActivityType.watching, name="Moderation"),
-            discord.Game(name="Premium System")
+            discord.Game(name="Watching Modration and activity"),
+            discord.Activity(type=discord.ActivityType.watching, name="premium member security"),
+            discord.Game(name="playing play with sakthi gaming")
         ]
 
     # ========================
@@ -48,6 +52,31 @@ class Admin(commands.Cog):
             f"🏓 Pong! `{latency}ms`",
             ephemeral=True
         )
+
+    # ========================
+    # /botinfo
+    # ========================
+    @app_commands.command(name="botinfo", description="🤖 Show bot information")
+    async def botinfo(self, interaction: discord.Interaction):
+        uptime = int(time.time() - START_TIME)
+
+        embed = discord.Embed(
+            title="🤖 Bot Info",
+            color=discord.Color.gold(),
+            timestamp=datetime.datetime.utcnow()
+        )
+
+        embed.add_field(name="Servers", value=len(self.bot.guilds), inline=True)
+        embed.add_field(name="Users", value=len(self.bot.users), inline=True)
+        embed.add_field(name="Latency", value=f"{round(self.bot.latency*1000)}ms", inline=True)
+        embed.add_field(
+            name="Uptime",
+            value=f"{uptime//3600}h {(uptime%3600)//60}m",
+            inline=True
+        )
+
+        embed.set_thumbnail(url=self.bot.user.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
 
     # ========================
     # /serverstatus
@@ -132,6 +161,44 @@ class Admin(commands.Cog):
             ephemeral=True
         )
 
+    # ========================
+    # /restart
+    # ========================
+    @app_commands.command(name="restart", description="♻ Restart the bot")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def restart(self, interaction: discord.Interaction):
+        await interaction.response.send_message("♻ Restarting bot...", ephemeral=True)
+        os.execv(sys.executable, ["python"] + sys.argv)
+
+    # ========================
+    # /dm
+    # ========================
+    @app_commands.command(name="dm", description="✉ Send DM to a user")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dm(self, interaction: discord.Interaction, member: discord.Member, message: str):
+        try:
+            await member.send(message)
+            await interaction.response.send_message("✅ DM sent", ephemeral=True)
+        except:
+            await interaction.response.send_message("❌ Could not send DM", ephemeral=True)
+
+    # ========================
+    # /dmall
+    # ========================
+    @app_commands.command(name="dmall", description="📢 DM all server members")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dmall(self, interaction: discord.Interaction, message: str):
+        await interaction.response.defer(ephemeral=True)
+        count = 0
+        for member in interaction.guild.members:
+            if not member.bot:
+                try:
+                    await member.send(message)
+                    count += 1
+                except:
+                    pass
+        await interaction.followup.send(f"✅ Sent DM to {count} members", ephemeral=True)
+
     # =====================================================
     # CHANNEL MANAGEMENT
     # =====================================================
@@ -157,7 +224,7 @@ class Admin(commands.Cog):
                 ephemeral=True
             )
 
-        await interaction.followup.send(f"✅ Channel created: {channel.mention}")
+        await interaction.followup.send(f"✅ Channel created: {channel.mention}", ephemeral=True)
 
     @app_commands.command(name="delete_channel", description="🗑 Delete a channel")
     @app_commands.checks.has_permissions(manage_channels=True)
@@ -168,13 +235,7 @@ class Admin(commands.Cog):
 
     @app_commands.command(name="edit_channel", description="✏️ Edit channel name or topic")
     @app_commands.checks.has_permissions(manage_channels=True)
-    async def edit_channel(
-        self,
-        interaction: discord.Interaction,
-        channel: discord.TextChannel,
-        new_name: str = None,
-        new_topic: str = None
-    ):
+    async def edit_channel(self, interaction: discord.Interaction, channel: discord.TextChannel, new_name: str = None, new_topic: str = None):
         await interaction.response.defer(ephemeral=True)
         kwargs = {}
         if new_name:
@@ -215,7 +276,7 @@ class Admin(commands.Cog):
     # ========================
     # CLEAR CHAT
     # ========================
-    @app_commands.command(name="clear_chat", description="🧹 Clear messages from a channel")
+    @app_commands.command(name="clear_chat", description="🧹 Clear messages")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def clear_chat(self, interaction: discord.Interaction, amount: int):
         await interaction.response.defer(ephemeral=True)
