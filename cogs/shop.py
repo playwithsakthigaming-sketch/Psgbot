@@ -74,7 +74,7 @@ class PaymentConfirmView(discord.ui.View):
                 f"💰 Total Paid: {self.final_price} coins\n\n"
                 f"🔗 **Your Link (auto deletes in 10 min):**\n{self.link}"
             )
-            await asyncio.sleep(600)
+            await asyncio.sleep(30)
             await dm_msg.delete()
         except:
             pass
