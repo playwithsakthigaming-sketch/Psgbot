@@ -129,9 +129,8 @@ CREATE TABLE IF NOT EXISTS shop_items (
     stock INTEGER,
     image_url TEXT,
     category_id INTEGER,
-    product_link TEXT,
-    FOREIGN KEY(category_id) REFERENCES shop_categories(id)
-)
+    product_link TEXT
+        )
         """)
 
         # ================= SHOP CATEGORIES =================
