@@ -148,7 +148,8 @@ async def init_db():
             price INTEGER,
             stock INTEGER,
             image_url TEXT,
-            category_id INTEGER
+            category_id INTEGER,
+            product_link TEXT
         )
         """)
 
