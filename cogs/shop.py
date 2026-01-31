@@ -50,7 +50,7 @@ class PaymentConfirmView(discord.ui.View):
         # Only the buyer can confirm
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message(
-                "❌ This payment is not for you.", ephemeral=True
+                "❌ This payment is not for you.", ephemeral=False
             )
 
         if self.used:
