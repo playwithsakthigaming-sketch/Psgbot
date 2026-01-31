@@ -35,17 +35,48 @@ def product_embed(guild, item_id, name, price, stock, image_url, category):
 
 # ================= PAYMENT CONFIRM VIEW =================
 class PaymentConfirmView(discord.ui.View):
-    def __init__(self, item_id, final_price, link, product_name):
+    def __init__(self, user_id, item_id, final_price, link, product_name):
         super().__init__(timeout=60)
+        self.user_id = user_id
         self.item_id = item_id
         self.final_price = final_price
         self.link = link
         self.product_name = product_name
+        self.used = False
 
     @discord.ui.button(label="✅ Confirm Payment", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
 
+        # Only original user
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message(
+                "❌ This payment is not for you.", ephemeral=True
+            )
+
+        if self.used:
+            return await interaction.response.send_message(
+                "⚠️ Payment already confirmed.", ephemeral=True
+            )
+
+        self.used = True
+
+        # Acknowledge interaction immediately
+        await interaction.response.defer(ephemeral=True)
+
         async with aiosqlite.connect(DB_NAME) as db:
+
+            # Recheck stock
+            cur = await db.execute(
+                "SELECT stock, product_link FROM shop_items WHERE id=?",
+                (self.item_id,)
+            )
+            row = await cur.fetchone()
+
+            if not row or row[0] <= 0:
+                return await interaction.followup.send("❌ Item is out of stock.")
+
+            link = row[1]
+
             # Deduct coins
             await db.execute(
                 "UPDATE coins SET balance = balance - ? WHERE user_id=?",
@@ -72,16 +103,20 @@ class PaymentConfirmView(discord.ui.View):
                 f"🎉 {interaction.user.mention} **Purchase Successful!**\n\n"
                 f"📦 Product: **{self.product_name}**\n"
                 f"💰 Total Paid: {self.final_price} coins\n\n"
-                f"🔗 **Your Link (auto deletes in 10 min):**\n{self.link}"
+                f"🔗 **Your Link (auto deletes in 10 min):**\n{link}"
             )
             await asyncio.sleep(30)
             await dm_msg.delete()
         except:
             pass
 
-        await interaction.response.edit_message(
-            content="✅ Payment confirmed! Check your DM.",
-            view=None
+        # Disable button
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.followup.send(
+            "✅ Payment confirmed! Check your DM.",
+            ephemeral=True
         )
 
 
@@ -155,7 +190,7 @@ class BuyModal(discord.ui.Modal, title="🛒 Purchase Form"):
             color=discord.Color.gold()
         )
 
-        view = PaymentConfirmView(self.item_id, final_price, link, name)
+        view = PaymentConfirmView(interaction.user.id, self.item_id, final_price, link, name)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
@@ -218,9 +253,7 @@ class Shop(commands.Cog):
                 (name,)
             )
             await db.commit()
-        await interaction.response.send_message(
-            f"✅ Category `{name}` added.", ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ Category `{name}` added.", ephemeral=True)
 
 
     # -------- ADD PRODUCT --------
@@ -243,9 +276,7 @@ class Shop(commands.Cog):
             )
             row = await cur.fetchone()
             if not row:
-                return await interaction.response.send_message(
-                    "❌ Category not found.", ephemeral=True
-                )
+                return await interaction.response.send_message("❌ Category not found.", ephemeral=True)
 
             await db.execute("""
             INSERT INTO shop_items (name, price, stock, image_url, category_id, product_link)
@@ -254,9 +285,7 @@ class Shop(commands.Cog):
 
             await db.commit()
 
-        await interaction.response.send_message(
-            f"✅ Product `{name}` added.", ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ Product `{name}` added.", ephemeral=True)
 
 
     # -------- RESTOCK --------
@@ -287,14 +316,9 @@ class Shop(commands.Cog):
             rows = await cur.fetchall()
 
         if not rows:
-            return await interaction.response.send_message(
-                "📦 No orders yet.", ephemeral=True
-            )
+            return await interaction.response.send_message("📦 No orders yet.", ephemeral=True)
 
-        embed = discord.Embed(
-            title="📜 Your Order History",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="📜 Your Order History", color=discord.Color.blue())
 
         for name, total, ts in rows:
             embed.add_field(
