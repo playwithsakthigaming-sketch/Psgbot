@@ -50,7 +50,7 @@ class PaymentConfirmView(discord.ui.View):
         # Only the buyer can confirm
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message(
-                "❌ This payment is not for you.", ephemeral=False
+                "❌ This payment is not for you.", ephemeral=True
             )
 
         if self.used:
@@ -180,10 +180,10 @@ class BuyModal(discord.ui.Modal, title="🛒 Purchase Form"):
             balance = bal[0] if bal else 0
 
             if balance < final_price:
-                return await interaction.response.send_message(
-                f"❌ Not enough coins. Need `{final_price}` coins.",
-                ephemeral=True
-                )
+    return await interaction.followup.send(
+        f"❌ Not enough coins. Need {final_price} coins.",
+        ephemeral=True
+    )
 
         embed = discord.Embed(
             title="💳 Payment Details",
