@@ -64,7 +64,7 @@ async def init_db():
             welcome_channel INTEGER,
             welcome_role INTEGER,
             welcome_message TEXT
-            )
+        )
         """)
 
         # ================= TICKETS =================
@@ -110,13 +110,13 @@ async def init_db():
         # ================= YOUTUBE ALERTS =================
         await db.execute("""
         CREATE TABLE IF NOT EXISTS youtube_alerts (
-    guild_id INTEGER,
-    youtube_channel TEXT,
-    discord_channel INTEGER,
-    role_ping INTEGER,
-    message TEXT,
-    last_video TEXT,
-    PRIMARY KEY (guild_id, youtube_channel)
+            guild_id INTEGER,
+            youtube_channel TEXT,
+            discord_channel INTEGER,
+            role_ping INTEGER,
+            message TEXT,
+            last_video TEXT,
+            PRIMARY KEY (guild_id, youtube_channel)
         )
         """)
 
@@ -132,5 +132,44 @@ async def init_db():
         )
         """)
 
+        # ================= SHOP CATEGORIES =================
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS shop_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE
+        )
+        """)
+
+        # ================= SHOP ITEMS =================
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS shop_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            price INTEGER,
+            stock INTEGER,
+            image_url TEXT,
+            category_id INTEGER
+        )
+        """)
+
+        # ================= CARTS =================
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS carts (
+            user_id INTEGER,
+            item_id INTEGER,
+            quantity INTEGER
+        )
+        """)
+
+        # ================= ORDERS =================
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            total INTEGER,
+            timestamp INTEGER
+        )
+        """)
+
         await db.commit()
-        print("✅ Database checked & updated")
+        print("✅ Database checked & updated (including shop system)")
