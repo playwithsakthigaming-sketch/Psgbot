@@ -1,9 +1,8 @@
-import discord, aiosqlite, time, uuid
-from discord.ext import commands, tasks
+import discord, aiosqlite, time
+from discord.ext import commands
 from discord import app_commands
 
 DB_NAME = "bot.db"
-LINK_EXPIRY = 30  # 10 minutes
 
 
 # ================= PRODUCT CARD =================
@@ -12,9 +11,9 @@ def product_embed(item_id, name, price, stock, image_url, category):
         title=name,
         description=(
             f"📦 **Category:** {category}\n"
-            f"💰 **Price:** `{price} coins`\n"
-            f"📊 **Stock:** `{stock}`\n\n"
-            f"Click **BUY** to purchase."
+            f"💰 **Price:** {price} coins\n"
+            f"📊 **Stock:** {stock}\n\n"
+            "Click **BUY** to receive your private link in DM."
         ),
         color=discord.Color.purple()
     )
@@ -33,12 +32,14 @@ class BuyView(discord.ui.View):
     @discord.ui.button(label="🛒 BUY", style=discord.ButtonStyle.success)
     async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
 
+        await interaction.response.defer(ephemeral=True)
+
         async with aiosqlite.connect(DB_NAME) as db:
 
-            # Get item
+            # Get item info
             cur = await db.execute("""
             SELECT shop_items.name, shop_items.price, shop_items.stock,
-                   shop_items.image_url, shop_categories.name
+                   shop_items.product_link, shop_categories.name
             FROM shop_items
             JOIN shop_categories ON shop_items.category_id = shop_categories.id
             WHERE shop_items.id=?
@@ -46,27 +47,23 @@ class BuyView(discord.ui.View):
             item = await cur.fetchone()
 
             if not item:
-                return await interaction.response.send_message("❌ Item not found", ephemeral=True)
+                return await interaction.followup.send("❌ Item not found.")
 
-            name, price, stock, image_url, category = item
+            name, price, stock, link, category = item
 
             if stock <= 0:
-                return await interaction.response.send_message("❌ Out of stock", ephemeral=True)
+                return await interaction.followup.send("❌ Out of stock.")
 
-            # Get user coins
-            cur = await db.execute("SELECT balance FROM coins WHERE user_id=?", (interaction.user.id,))
+            # Get user balance
+            cur = await db.execute(
+                "SELECT balance FROM coins WHERE user_id=?",
+                (interaction.user.id,)
+            )
             row = await cur.fetchone()
             balance = row[0] if row else 0
 
             if balance < price:
-                return await interaction.response.send_message("❌ Not enough coins", ephemeral=True)
-
-            now = int(time.time())
-            expires = now + LINK_EXPIRY
-
-            # Generate unique link
-            token = str(uuid.uuid4())
-            generated_link = f"https://yourdomain.com/redeem/{token}"
+                return await interaction.followup.send("❌ Not enough coins.")
 
             # Deduct coins
             await db.execute(
@@ -80,33 +77,29 @@ class BuyView(discord.ui.View):
                 (self.item_id,)
             )
 
-            # Save unique link
-            await db.execute("""
-            INSERT INTO user_links (user_id, item_id, link, expires, used)
-            VALUES (?,?,?,?,0)
-            """, (interaction.user.id, self.item_id, generated_link, expires))
-
             # Save order
             await db.execute("""
             INSERT INTO orders (user_id, item_name, total, timestamp)
             VALUES (?,?,?,?)
-            """, (interaction.user.id, name, price, now))
+            """, (interaction.user.id, name, price, int(time.time())))
 
             await db.commit()
 
-        # Send link to DM
+        # Send link in DM
         try:
             await interaction.user.send(
-                f"🔗 **Your Purchase: {name}**\n\n"
-                f"Unique Link (valid 10 minutes):\n{generated_link}\n\n"
-                f"⏰ Expires <t:{expires}:R>\n"
-                "⚠️ One-time use only"
+                f"🎉 **Purchase Successful!**\n\n"
+                f"📦 Product: **{name}**\n"
+                f"💰 Price: {price} coins\n\n"
+                f"🔗 **Your Link:**\n{link}\n\n"
+                "⚠️ Do not share this link with others."
             )
+            dm_status = "📩 Link sent to your DM!"
         except:
-            pass
+            dm_status = "⚠️ I couldn't DM you. Please enable DMs."
 
-        await interaction.response.send_message(
-            "✅ Purchase successful! Unique link sent to your DM (10 min valid).",
+        await interaction.followup.send(
+            f"✅ Purchase complete!\n{dm_status}",
             ephemeral=True
         )
 
@@ -115,32 +108,26 @@ class BuyView(discord.ui.View):
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.cleanup_links.start()
-
-    # -------- AUTO CLEAN EXPIRED LINKS --------
-    @tasks.loop(minutes=5)
-    async def cleanup_links(self):
-        async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("DELETE FROM user_links WHERE expires < ?", (int(time.time()),))
-            await db.commit()
-
-    @cleanup_links.before_loop
-    async def before_cleanup(self):
-        await self.bot.wait_until_ready()
 
 
-    # -------- ADD CATEGORY (ADMIN) --------
-    @app_commands.command(name="add_category")
+    # -------- ADD CATEGORY --------
+    @app_commands.command(name="add_category", description="Add shop category")
     @app_commands.checks.has_permissions(administrator=True)
     async def add_category(self, interaction: discord.Interaction, name: str):
         async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("INSERT OR IGNORE INTO shop_categories(name) VALUES(?)", (name,))
+            await db.execute(
+                "INSERT OR IGNORE INTO shop_categories(name) VALUES(?)",
+                (name,)
+            )
             await db.commit()
-        await interaction.response.send_message("✅ Category added", ephemeral=True)
+
+        await interaction.response.send_message(
+            f"✅ Category `{name}` added", ephemeral=True
+        )
 
 
-    # -------- ADD PRODUCT (ADMIN) --------
-    @app_commands.command(name="add_product")
+    # -------- ADD PRODUCT --------
+    @app_commands.command(name="add_product", description="Add shop product with link")
     @app_commands.checks.has_permissions(administrator=True)
     async def add_product(
         self,
@@ -149,26 +136,37 @@ class Shop(commands.Cog):
         price: int,
         stock: int,
         image_url: str,
-        category: str
+        category: str,
+        product_link: str
     ):
         async with aiosqlite.connect(DB_NAME) as db:
-            cur = await db.execute("SELECT id FROM shop_categories WHERE name=?", (category,))
+            cur = await db.execute(
+                "SELECT id FROM shop_categories WHERE name=?",
+                (category,)
+            )
             row = await cur.fetchone()
+
             if not row:
-                return await interaction.response.send_message("❌ Category not found", ephemeral=True)
+                return await interaction.response.send_message(
+                    "❌ Category not found", ephemeral=True
+                )
+
+            category_id = row[0]
 
             await db.execute("""
-            INSERT INTO shop_items (name, price, stock, image_url, category_id)
-            VALUES (?,?,?,?,?)
-            """, (name, price, stock, image_url, row[0]))
+            INSERT INTO shop_items (name, price, stock, image_url, category_id, product_link)
+            VALUES (?,?,?,?,?,?)
+            """, (name, price, stock, image_url, category_id, product_link))
 
             await db.commit()
 
-        await interaction.response.send_message("✅ Product added", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ Product `{name}` added", ephemeral=True
+        )
 
 
     # -------- SHOW SHOP --------
-    @app_commands.command(name="shop")
+    @app_commands.command(name="shop", description="View shop")
     async def shop(self, interaction: discord.Interaction):
 
         async with aiosqlite.connect(DB_NAME) as db:
@@ -189,11 +187,13 @@ class Shop(commands.Cog):
             view = BuyView(item_id)
             await interaction.channel.send(embed=embed, view=view)
 
-        await interaction.response.send_message("✅ Shop loaded", ephemeral=True)
+        await interaction.response.send_message(
+            "🛒 Shop loaded!", ephemeral=True
+        )
 
 
     # -------- ORDER HISTORY --------
-    @app_commands.command(name="order_history")
+    @app_commands.command(name="order_history", description="Your order history")
     async def order_history(self, interaction: discord.Interaction):
 
         async with aiosqlite.connect(DB_NAME) as db:
@@ -204,9 +204,15 @@ class Shop(commands.Cog):
             rows = await cur.fetchall()
 
         if not rows:
-            return await interaction.response.send_message("📦 No orders yet", ephemeral=True)
+            return await interaction.response.send_message(
+                "📦 No orders yet", ephemeral=True
+            )
 
-        embed = discord.Embed(title="📜 Order History", color=discord.Color.blue())
+        embed = discord.Embed(
+            title="📜 Order History",
+            color=discord.Color.blue()
+        )
+
         for name, total, ts in rows:
             embed.add_field(
                 name=name,
