@@ -12,6 +12,46 @@ DB_NAME = "bot.db"
 START_TIME = time.time()
 
 
+# ========================
+# SERVER STATUS VIEW (Buttons)
+# ========================
+class ServerStatusView(discord.ui.View):
+    def __init__(self, guild: discord.Guild):
+        super().__init__(timeout=300)
+        self.guild = guild
+
+    def get_embed(self):
+        online = sum(m.status != discord.Status.offline for m in self.guild.members)
+
+        embed = discord.Embed(
+            title="📊 Server Status",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.add_field(name="Server", value=self.guild.name, inline=False)
+        embed.add_field(name="Members", value=self.guild.member_count, inline=True)
+        embed.add_field(name="Online", value=online, inline=True)
+        embed.add_field(name="Channels", value=len(self.guild.channels), inline=True)
+        embed.add_field(name="Roles", value=len(self.guild.roles), inline=True)
+        embed.add_field(name="Boost Level", value=self.guild.premium_tier, inline=True)
+
+        if self.guild.icon:
+            embed.set_thumbnail(url=self.guild.icon.url)
+
+        return embed
+
+    # 🔄 Refresh Button
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.green, emoji="🔄")
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self.get_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    # 🗑 Remove Button
+    @discord.ui.button(label="Remove", style=discord.ButtonStyle.red, emoji="🗑")
+    async def remove(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.message.delete()
+
+
 class Admin(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -53,102 +93,13 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"🏓 Pong! `{latency}ms`", ephemeral=True)
 
     # ========================
-    # /botinfo
+    # /serverstatus (WITH BUTTONS)
     # ========================
-    @app_commands.command(name="botinfo", description="🤖 Show bot information")
-    async def botinfo(self, interaction: discord.Interaction):
-        uptime = int(time.time() - START_TIME)
-
-        embed = discord.Embed(
-            title="🤖 Bot Info",
-            color=discord.Color.gold(),
-            timestamp=datetime.datetime.utcnow()
-        )
-
-        embed.add_field(name="Servers", value=len(self.bot.guilds), inline=True)
-        embed.add_field(name="Users", value=len(self.bot.users), inline=True)
-        embed.add_field(name="Latency", value=f"{round(self.bot.latency*1000)}ms", inline=True)
-        embed.add_field(name="Uptime", value=f"{uptime//3600}h {(uptime%3600)//60}m", inline=True)
-
-        embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
-
-    # ========================
-    # /serverstatus
-    # ========================
-    @app_commands.command(name="serverstatus", description="📊 Show server status")
+    @app_commands.command(name="serverstatus", description="📊 Show server status with buttons")
     async def serverstatus(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        online = sum(m.status != discord.Status.offline for m in guild.members)
-
-        embed = discord.Embed(
-            title="📊 Server Status",
-            color=discord.Color.green(),
-            timestamp=datetime.datetime.utcnow()
-        )
-
-        embed.add_field(name="Server", value=guild.name, inline=False)
-        embed.add_field(name="Members", value=guild.member_count, inline=True)
-        embed.add_field(name="Online", value=online, inline=True)
-        embed.add_field(name="Channels", value=len(guild.channels), inline=True)
-        embed.add_field(name="Roles", value=len(guild.roles), inline=True)
-        embed.add_field(name="Boost Level", value=guild.premium_tier, inline=True)
-
-        if guild.icon:
-            embed.set_thumbnail(url=guild.icon.url)
-
-        await interaction.response.send_message(embed=embed)
-
-    # ========================
-    # /playerinfo
-    # ========================
-    @app_commands.command(name="playerinfo", description="👤 Show user information")
-    async def playerinfo(self, interaction: discord.Interaction, member: discord.Member = None):
-        member = member or interaction.user
-
-        premium_status = "❌ No"
-        async with aiosqlite.connect(DB_NAME) as db:
-            cursor = await db.execute("SELECT tier FROM premium WHERE user_id=?", (member.id,))
-            row = await cursor.fetchone()
-            if row:
-                premium_status = f"✅ {row[0].capitalize()}"
-
-        embed = discord.Embed(
-            title="👤 Player Info",
-            color=discord.Color.blue(),
-            timestamp=datetime.datetime.utcnow()
-        )
-
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="Username", value=member.name, inline=True)
-        embed.add_field(name="User ID", value=member.id, inline=True)
-        embed.add_field(name="Premium", value=premium_status, inline=True)
-        embed.add_field(name="Joined Server", value=member.joined_at.strftime("%d-%m-%Y"), inline=False)
-        embed.add_field(name="Account Created", value=member.created_at.strftime("%d-%m-%Y"), inline=False)
-        embed.add_field(name="Top Role", value=member.top_role.mention, inline=False)
-
-        await interaction.response.send_message(embed=embed)
-
-    # ========================
-    # /setstatus
-    # ========================
-    @app_commands.command(name="setstatus", description="🤖 Set bot activity manually")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def setstatus(self, interaction: discord.Interaction, mode: str, text: str):
-        await interaction.response.defer(ephemeral=True)
-
-        mode = mode.lower()
-        if mode == "playing":
-            activity = discord.Game(name=text)
-        elif mode == "watching":
-            activity = discord.Activity(type=discord.ActivityType.watching, name=text)
-        elif mode == "listening":
-            activity = discord.Activity(type=discord.ActivityType.listening, name=text)
-        else:
-            return await interaction.followup.send("❌ Mode must be: playing / watching / listening", ephemeral=True)
-
-        await self.bot.change_presence(activity=activity)
-        await interaction.followup.send(f"✅ Bot status updated to **{mode} {text}**", ephemeral=True)
+        view = ServerStatusView(interaction.guild)
+        embed = view.get_embed()
+        await interaction.response.send_message(embed=embed, view=view)
 
     # ========================
     # /restart
@@ -160,36 +111,7 @@ class Admin(commands.Cog):
         os.execv(sys.executable, ["python"] + sys.argv)
 
     # ========================
-    # /dm
-    # ========================
-    @app_commands.command(name="dm", description="✉ Send DM to a user")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def dm(self, interaction: discord.Interaction, member: discord.Member, message: str):
-        try:
-            await member.send(message)
-            await interaction.response.send_message("✅ DM sent", ephemeral=True)
-        except:
-            await interaction.response.send_message("❌ Could not send DM", ephemeral=True)
-
-    # ========================
-    # /dmall
-    # ========================
-    @app_commands.command(name="dmall", description="📢 DM all server members")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def dmall(self, interaction: discord.Interaction, message: str):
-        await interaction.response.defer(ephemeral=True)
-        count = 0
-        for member in interaction.guild.members:
-            if not member.bot:
-                try:
-                    await member.send(message)
-                    count += 1
-                except:
-                    pass
-        await interaction.followup.send(f"✅ Sent DM to {count} members", ephemeral=True)
-
-    # ========================
-    # /addemoji (file OR text OR url)
+    # /addemoji (FIXED - no timeout error)
     # ========================
     @app_commands.command(name="addemoji", description="😀 Add emoji using file, text or URL")
     @app_commands.checks.has_permissions(manage_emojis=True)
@@ -212,42 +134,64 @@ class Admin(commands.Cog):
         image_bytes = None
 
         try:
-            # From attachment
+            # ✅ From attachment file (PNG/JPG/GIF)
             if file:
-                if not file.content_type.startswith("image"):
-                    return await interaction.followup.send("❌ File must be an image (PNG/JPG/GIF)", ephemeral=True)
+                if not file.content_type or not file.content_type.startswith("image"):
+                    return await interaction.followup.send(
+                        "❌ File must be an image (PNG/JPG/GIF)",
+                        ephemeral=True
+                    )
                 image_bytes = await file.read()
 
-            # From custom emoji text
+            # ✅ From custom emoji text
             elif text:
                 if text.startswith("<") and text.endswith(">"):
                     emoji = await commands.EmojiConverter().convert(interaction, text)
                     image_bytes = await emoji.read()
                 else:
                     return await interaction.followup.send(
-                        "❌ Text must be a custom emoji like <:name:id> or <a:name:id>",
+                        "❌ Text must be custom emoji like <:name:id> or <a:name:id>",
                         ephemeral=True
                     )
 
-            # From URL
+            # ✅ From image URL
             elif url:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as resp:
                         if resp.status != 200:
-                            return await interaction.followup.send("❌ Invalid image URL", ephemeral=True)
+                            return await interaction.followup.send(
+                                "❌ Invalid image URL",
+                                ephemeral=True
+                            )
                         image_bytes = await resp.read()
 
+            # ✅ Create emoji (supports GIF)
             new_emoji = await interaction.guild.create_custom_emoji(
                 name=name,
-                image=image_bytes
+                image=image_bytes,
+                reason=f"Added by {interaction.user}"
             )
 
-            await interaction.followup.send(f"✅ Emoji added successfully! {new_emoji}", ephemeral=True)
+            await interaction.followup.send(
+                f"✅ Emoji added successfully! {new_emoji}",
+                ephemeral=True
+            )
 
         except discord.Forbidden:
-            await interaction.followup.send("❌ I don't have permission to manage emojis.", ephemeral=True)
+            await interaction.followup.send(
+                "❌ I don't have permission to manage emojis.",
+                ephemeral=True
+            )
+        except discord.HTTPException as e:
+            await interaction.followup.send(
+                f"❌ Discord error: {e}",
+                ephemeral=True
+            )
         except Exception as e:
-            await interaction.followup.send(f"❌ Failed to add emoji: {e}", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ Failed to add emoji: {e}",
+                ephemeral=True
+            )
 
     # ========================
     # CLEAR CHAT
@@ -257,7 +201,10 @@ class Admin(commands.Cog):
     async def clear_chat(self, interaction: discord.Interaction, amount: int):
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=amount)
-        await interaction.followup.send(f"🧹 Deleted {len(deleted)} messages", ephemeral=True)
+        await interaction.followup.send(
+            f"🧹 Deleted {len(deleted)} messages",
+            ephemeral=True
+        )
 
 
 # ========================
