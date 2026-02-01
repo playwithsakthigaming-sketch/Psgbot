@@ -40,13 +40,11 @@ class ServerStatusView(discord.ui.View):
 
         return embed
 
-    # 🔄 Refresh Button
     @discord.ui.button(label="Refresh", style=discord.ButtonStyle.green, emoji="🔄")
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = self.get_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
-    # 🗑 Remove Button
     @discord.ui.button(label="Remove", style=discord.ButtonStyle.red, emoji="🗑")
     async def remove(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.message.delete()
@@ -93,7 +91,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"🏓 Pong! `{latency}ms`", ephemeral=True)
 
     # ========================
-    # /serverstatus (WITH BUTTONS)
+    # /serverstatus (buttons)
     # ========================
     @app_commands.command(name="serverstatus", description="📊 Show server status with buttons")
     async def serverstatus(self, interaction: discord.Interaction):
@@ -111,7 +109,7 @@ class Admin(commands.Cog):
         os.execv(sys.executable, ["python"] + sys.argv)
 
     # ========================
-    # /addemoji (FIXED - no timeout error)
+    # /addemoji (FIXED)
     # ========================
     @app_commands.command(name="addemoji", description="😀 Add emoji using file, text or URL")
     @app_commands.checks.has_permissions(manage_emojis=True)
@@ -134,7 +132,7 @@ class Admin(commands.Cog):
         image_bytes = None
 
         try:
-            # ✅ From attachment file (PNG/JPG/GIF)
+            # From file
             if file:
                 if not file.content_type or not file.content_type.startswith("image"):
                     return await interaction.followup.send(
@@ -143,18 +141,25 @@ class Admin(commands.Cog):
                     )
                 image_bytes = await file.read()
 
-            # ✅ From custom emoji text
+            # From custom emoji text
             elif text:
-                if text.startswith("<") and text.endswith(">"):
-                    emoji = await commands.EmojiConverter().convert(interaction, text)
-                    image_bytes = await emoji.read()
-                else:
+                emoji = discord.PartialEmoji.from_str(text)
+                if not emoji or not emoji.id:
                     return await interaction.followup.send(
                         "❌ Text must be custom emoji like <:name:id> or <a:name:id>",
                         ephemeral=True
                     )
 
-            # ✅ From image URL
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(str(emoji.url)) as resp:
+                        if resp.status != 200:
+                            return await interaction.followup.send(
+                                "❌ Failed to download emoji image",
+                                ephemeral=True
+                            )
+                        image_bytes = await resp.read()
+
+            # From URL
             elif url:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as resp:
@@ -165,7 +170,7 @@ class Admin(commands.Cog):
                             )
                         image_bytes = await resp.read()
 
-            # ✅ Create emoji (supports GIF)
+            # Create emoji (supports GIF)
             new_emoji = await interaction.guild.create_custom_emoji(
                 name=name,
                 image=image_bytes,
