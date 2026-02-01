@@ -10,14 +10,15 @@ import time
 DB_NAME = "bot.db"
 START_TIME = time.time()
 
+
 class Admin(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.status_index = 0
         self.status_list = [
-            discord.Game(name="Watching Modration and activity"),
+            discord.Game(name="Watching moderation and activity"),
             discord.Activity(type=discord.ActivityType.watching, name="premium member security"),
-            discord.Game(name="playing play with sakthi gaming")
+            discord.Game(name="Playing Play With Sakthi Gaming")
         ]
 
     # ========================
@@ -27,7 +28,7 @@ class Admin(commands.Cog):
     async def on_ready(self):
         if not self.status_loop.is_running():
             self.status_loop.start()
-            print("✅ Status rotation started (10s)")
+            print("✅ Status rotation started")
 
     # ========================
     # STATUS LOOP
@@ -48,10 +49,7 @@ class Admin(commands.Cog):
     @app_commands.command(name="ping", description="🏓 Check bot latency")
     async def ping(self, interaction: discord.Interaction):
         latency = round(self.bot.latency * 1000)
-        await interaction.response.send_message(
-            f"🏓 Pong! `{latency}ms`",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"🏓 Pong! `{latency}ms`", ephemeral=True)
 
     # ========================
     # /botinfo
@@ -69,11 +67,7 @@ class Admin(commands.Cog):
         embed.add_field(name="Servers", value=len(self.bot.guilds), inline=True)
         embed.add_field(name="Users", value=len(self.bot.users), inline=True)
         embed.add_field(name="Latency", value=f"{round(self.bot.latency*1000)}ms", inline=True)
-        embed.add_field(
-            name="Uptime",
-            value=f"{uptime//3600}h {(uptime%3600)//60}m",
-            inline=True
-        )
+        embed.add_field(name="Uptime", value=f"{uptime//3600}h {(uptime%3600)//60}m", inline=True)
 
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         await interaction.response.send_message(embed=embed)
@@ -150,16 +144,10 @@ class Admin(commands.Cog):
         elif mode == "listening":
             activity = discord.Activity(type=discord.ActivityType.listening, name=text)
         else:
-            return await interaction.followup.send(
-                "❌ Mode must be: playing / watching / listening",
-                ephemeral=True
-            )
+            return await interaction.followup.send("❌ Mode must be: playing / watching / listening", ephemeral=True)
 
         await self.bot.change_presence(activity=activity)
-        await interaction.followup.send(
-            f"✅ Bot status updated to **{mode} {text}**",
-            ephemeral=True
-        )
+        await interaction.followup.send(f"✅ Bot status updated to **{mode} {text}**", ephemeral=True)
 
     # ========================
     # /restart
@@ -199,10 +187,38 @@ class Admin(commands.Cog):
                     pass
         await interaction.followup.send(f"✅ Sent DM to {count} members", ephemeral=True)
 
-    # =====================================================
-    # CHANNEL MANAGEMENT
-    # =====================================================
+    # ========================
+    # /addemoji
+    # ========================
+    @app_commands.command(name="addemoji", description="😀 Upload an emoji to the server")
+    @app_commands.checks.has_permissions(manage_emojis=True)
+    async def addemoji(self, interaction: discord.Interaction, name: str, emoji: discord.Attachment):
+        await interaction.response.defer(ephemeral=True)
 
+        if not emoji.content_type.startswith("image"):
+            return await interaction.followup.send("❌ Please upload a valid image (PNG/JPG/GIF)", ephemeral=True)
+
+        try:
+            image_bytes = await emoji.read()
+
+            new_emoji = await interaction.guild.create_custom_emoji(
+                name=name,
+                image=image_bytes
+            )
+
+            await interaction.followup.send(
+                f"✅ Emoji uploaded successfully! {new_emoji}",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.followup.send("❌ I don't have permission to manage emojis.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to upload emoji: {e}", ephemeral=True)
+
+    # ========================
+    # CHANNEL MANAGEMENT
+    # ========================
     @app_commands.command(name="create_channel", description="➕ Create a new channel")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def create_channel(self, interaction: discord.Interaction, name: str, channel_type: str):
@@ -219,10 +235,7 @@ class Admin(commands.Cog):
         elif channel_type == "stage":
             channel = await guild.create_stage_channel(name)
         else:
-            return await interaction.followup.send(
-                "❌ channel_type must be: text / voice / forum / stage",
-                ephemeral=True
-            )
+            return await interaction.followup.send("❌ channel_type must be: text / voice / forum / stage", ephemeral=True)
 
         await interaction.followup.send(f"✅ Channel created: {channel.mention}", ephemeral=True)
 
@@ -233,46 +246,6 @@ class Admin(commands.Cog):
         await channel.delete()
         await interaction.followup.send("✅ Channel deleted", ephemeral=True)
 
-    @app_commands.command(name="edit_channel", description="✏️ Edit channel name or topic")
-    @app_commands.checks.has_permissions(manage_channels=True)
-    async def edit_channel(self, interaction: discord.Interaction, channel: discord.TextChannel, new_name: str = None, new_topic: str = None):
-        await interaction.response.defer(ephemeral=True)
-        kwargs = {}
-        if new_name:
-            kwargs["name"] = new_name
-        if new_topic:
-            kwargs["topic"] = new_topic
-
-        if not kwargs:
-            return await interaction.followup.send("❌ Provide new_name or new_topic", ephemeral=True)
-
-        await channel.edit(**kwargs)
-        await interaction.followup.send("✅ Channel updated", ephemeral=True)
-
-    # ========================
-    # LOCK CHANNEL
-    # ========================
-    @app_commands.command(name="lock_channel", description="🔒 Lock a channel")
-    @app_commands.checks.has_permissions(manage_channels=True)
-    async def lock_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        await interaction.response.defer(ephemeral=True)
-        overwrite = channel.overwrites_for(interaction.guild.default_role)
-        overwrite.send_messages = False
-        await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
-        await interaction.followup.send(f"🔒 {channel.mention} locked", ephemeral=True)
-
-    # ========================
-    # UNLOCK CHANNEL
-    # ========================
-    @app_commands.command(name="unlock_channel", description="🔓 Unlock a channel")
-    @app_commands.checks.has_permissions(manage_channels=True)
-    async def unlock_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        await interaction.response.defer(ephemeral=True)
-        overwrite = channel.overwrites_for(interaction.guild.default_role)
-        overwrite.send_messages = True
-        await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
-        await interaction.followup.send(f"🔓 {channel.mention} unlocked", ephemeral=True)
-
     # ========================
     # CLEAR CHAT
     # ========================
@@ -281,10 +254,7 @@ class Admin(commands.Cog):
     async def clear_chat(self, interaction: discord.Interaction, amount: int):
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=amount)
-        await interaction.followup.send(
-            f"🧹 Deleted {len(deleted)} messages",
-            ephemeral=True
-        )
+        await interaction.followup.send(f"🧹 Deleted {len(deleted)} messages", ephemeral=True)
 
 
 # ========================
