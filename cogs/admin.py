@@ -85,10 +85,10 @@ class Admin(commands.Cog):
     # ========================
     # /ping
     # ========================
-    @app_commands.command(name="ping", description="🏓 Check bot latency")
+    @app_commands.command(name="ping", description="<a:psg:1467378607025557817> Check bot latency")
     async def ping(self, interaction: discord.Interaction):
         latency = round(self.bot.latency * 1000)
-        await interaction.response.send_message(f"🏓 Pong! `{latency}ms`", ephemeral=True)
+        await interaction.response.send_message(f"<a:psg:1467378607025557817> Pong! `{latency}ms`", ephemeral=True)
 
     # ========================
     # /serverstatus (buttons)
